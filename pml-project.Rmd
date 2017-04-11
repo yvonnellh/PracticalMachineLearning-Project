@@ -1,0 +1,138 @@
+---
+title: "Practical Machine Learning Project"
+author: "Yvonne"
+date: "April 10, 2017"
+output: html_document
+---
+
+## Executive Summary
+The objective of this study is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants,  to predict the manner in which they did the exercise.
+This project may use any of the other variables to predict with. The report describes how a model is built, how to do cross validation and justification of a good prediction model to use for predicting 20 different test cases.  The result is also presented at the end of the report.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# LOAD R PACKAGES
+library(caret)  
+library(randomForest)
+library(doMC)
+library(plyr)
+library(dplyr)
+```
+
+## Preparing Data Files
+The working directory will be set before the analysis. The given data files are downloaded and data is cleaned from any blank value.  The data was further processed to remove the non-relevant rows & columns, and convert some fields to numerical type for easier processing.
+
+```{r Download_Data}
+setwd("C:/DS/C08")
+
+# Download data files
+if(!file.exists("pml-training.csv")){
+	download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", 
+		destfile = "pml-training.csv", method = "curl")
+}
+if(!file.exists("pml-testing.csv")){
+	download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", 
+		destfile = "pml-testing.csv", method = "curl")
+}
+
+# Clean blank values in data
+train <- read.csv("pml-training.csv", header = TRUE, na.strings=c("","NA", "#DIV/0!"))
+test <- read.csv("pml-testing.csv", header = TRUE, na.strings=c("","NA", "#DIV/0!"))
+
+# Identify columns for this study. 
+# Calculate the percentage of NA's for each column and then to check the error percentage 
+NAPercent <- round(colMeans(is.na(train)), 2)
+table(NAPercent)
+
+```
+
+From the result, there are only 60 variables with complete data.  Thefore, these 60 variables will be used to build the prediction algorithm. 
+To further massage the data the following steps were performed:
+1. The 1st variable is dropped as it is the row index from the csv file.
+2. Find index of the complete columns minus the first and then subset the data based on index
+3. Identify and remove the columns that are irrelevant for prediction.
+4. Convert the fields to numeric for easy processing.
+
+```{r Prepare_Data}
+# Find index of the complete columns minus the first 
+index <- which(NAPercent==0)[-1]
+
+# Subset the data
+train <- train[, index]
+test <- test[, index]
+
+# Find data column that are irrelevant to prediction
+head(train)
+
+# The first six columns looks like related to users and they are unlikely to predict the activity.
+train <- train[, -(1:6)]
+test <- test[, -(1:6)]
+
+for(i in 1:(length(train)-1)){
+    train[,i] <- as.numeric(train[,i])
+    test[,i] <- as.numeric(test[,i])
+}
+
+```
+
+## Perform Data Cross Validation
+The train data set is splitted into 2 sets: 80% of data is used to train the model and 20% of data is used to validate the model.
+
+```{r Cross_Validation}
+# Split train data set to 2
+inTrain <- createDataPartition(y=train$classe,p=0.8, list=FALSE)
+trainData <- train[inTrain,]
+validation <- train[-inTrain,]
+
+# Print the dimentions of the 3 data sets
+rbind(trainData = dim(trainData), validation = dim(validation), test = dim(test))
+```
+
+
+## Generate Prediction Models
+We plan to use 2 most widely-used & most accurate prediction algorithm to generate the model. We review the accuracy rate and out-of-bag (OOB) error rates returned by the models as estimates for a food model.
+The prediction model are generated using (1) Random Forest(RF) Algorithm & (2) Generalized Boosted Regression (GBM) Model .  The RF model is computationally intensive, we will leverage the parallel processing using multiple cores through the doMC package
+
+
+```{r Generating_Models}
+# Generate rf fit model
+registerDoMC(cores = 8)
+rfFit <- randomForest(classe~., data = trainData, method ="rf", prox = TRUE)
+
+## Generate gbm model
+gbmFit <- train(classe~., data = trainData, method ="gbm", verbose = FALSE)
+```
+
+## Predicting and validating model using both rf and gbm
+
+```{r Interprete_Result}
+# use rf model to predict on validation data set
+rfFit
+rfPred <- predict(rfFit, validation)
+confusionMatrix(rfPred, validation$classe)
+
+
+# use gbm model to predict on validation data set
+gbmFit
+gbmPred <- predict(gbmFit, validation)
+confusionMatrix(gbmPred, validation$classe)
+``` 
+
+
+## Result
+RF MODEL shows that the model accuracy is 99.7% & the OOB estimate of error rate is 0.41%.
+GBM MODEL shows that the accuracy is 96.9%
+Therefore, we conclude that the RF model has higher accuracy percentage, it appears to be a better model and it will be used for subsequent predictions.
+
+
+## Predicting 20 given test data
+Apply Random Forest model to test set
+
+```{r}
+predict(rfFit, test)
+
+```
+
+## Conclusion
+The predictioin result was all correct using the RF model.
